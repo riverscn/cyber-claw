@@ -23,6 +23,8 @@ find_session_context() {
   local uid p env_display env_bus bus_path
   uid="$(id -u "$TARGET_USER")"
 
+  SESSION_DBUS=""
+
   # User session bus path is usually stable even when XFCE processes are not up yet.
   bus_path="/run/user/${uid}/bus"
   if [[ -S "$bus_path" ]]; then
@@ -54,13 +56,13 @@ find_session_context() {
     done
   fi
 
-  [[ -n "${SESSION_DISPLAY:-}" && -n "${SESSION_DBUS:-}" ]]
+  [[ -n "${SESSION_DISPLAY:-}" ]]
 }
 
 ensure_session_context() {
   local out disp uid runtime_dir
 
-  if [[ -n "${SESSION_DISPLAY:-}" && -n "${SESSION_DBUS:-}" ]]; then
+  if [[ -n "${SESSION_DISPLAY:-}" ]]; then
     return 0
   fi
 
@@ -114,8 +116,14 @@ ensure_session_context() {
 
 run_in_session_context() {
   ensure_session_context
-  log "Using DISPLAY=$SESSION_DISPLAY DBUS_SESSION_BUS_ADDRESS=$SESSION_DBUS for xfconf/xfce4-panel operations"
-  run_as_user "$TARGET_USER" env DISPLAY="$SESSION_DISPLAY" DBUS_SESSION_BUS_ADDRESS="$SESSION_DBUS" "$@"
+
+  if [[ -n "${SESSION_DBUS:-}" ]]; then
+    log "Using DISPLAY=$SESSION_DISPLAY DBUS_SESSION_BUS_ADDRESS=$SESSION_DBUS for xfconf/xfce4-panel operations"
+    run_as_user "$TARGET_USER" env DISPLAY="$SESSION_DISPLAY" DBUS_SESSION_BUS_ADDRESS="$SESSION_DBUS" "$@"
+  else
+    warn "DBUS session bus not detected; using dbus-run-session fallback on DISPLAY=$SESSION_DISPLAY"
+    run_as_user "$TARGET_USER" env DISPLAY="$SESSION_DISPLAY" dbus-run-session -- "$@"
+  fi
 }
 
 # Optional flags
