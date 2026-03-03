@@ -122,7 +122,11 @@ run_in_session_context() {
     run_as_user "$TARGET_USER" env DISPLAY="$SESSION_DISPLAY" DBUS_SESSION_BUS_ADDRESS="$SESSION_DBUS" "$@"
   else
     warn "DBUS session bus not detected; using dbus-run-session fallback on DISPLAY=$SESSION_DISPLAY"
-    run_as_user "$TARGET_USER" env DISPLAY="$SESSION_DISPLAY" dbus-run-session -- "$@"
+    if [[ "$1" == "xfce4-panel" && "${2:-}" == "-r" ]]; then
+      run_as_user "$TARGET_USER" env DISPLAY="$SESSION_DISPLAY" timeout 12s dbus-run-session -- "$@" >/dev/null 2>&1 || true
+    else
+      run_as_user "$TARGET_USER" env DISPLAY="$SESSION_DISPLAY" dbus-run-session -- "$@" >/dev/null 2>&1
+    fi
   fi
 }
 
