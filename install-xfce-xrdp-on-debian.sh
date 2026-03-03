@@ -60,27 +60,45 @@ find_session_context() {
 }
 
 ensure_session_context() {
+  local out disp
+
   if [[ -n "${SESSION_DISPLAY:-}" ]]; then
     return 0
   fi
 
-  # Reuse an existing graphical session only.
-  # Do NOT create XRDP sessions from SSH install context (fragile and can break login flow).
+  # First, try to reuse any existing graphical session context.
   log "Detecting existing graphical session context (DISPLAY + DBUS)..."
   if find_session_context; then
     log "Found existing session context: DISPLAY=$SESSION_DISPLAY"
     return 0
   fi
 
-  warn "No active graphical session found for $TARGET_USER; skip live XFCE tweaks for now."
-  warn "These tweaks will apply when running inside a desktop session."
+  # SSH install path: create XRDP session explicitly, then operate on that DISPLAY.
+  log "No active graphical session found. Starting XRDP session for $TARGET_USER..."
+  out="$(run_as_user "$TARGET_USER" xrdp-sesrun 2>&1 || true)"
+  disp="$(echo "$out" | grep -Eo 'display=:[0-9]+' | head -n1 | cut -d= -f2)"
+  if [[ -n "${disp:-}" ]]; then
+    SESSION_DISPLAY="$disp"
+  fi
+
+  # Wait briefly for XRDP session registration.
+  for _ in {1..45}; do
+    [[ -n "${SESSION_DISPLAY:-}" ]] || SESSION_DISPLAY="$(latest_xrdp_display || true)"
+    if [[ -n "${SESSION_DISPLAY:-}" ]]; then
+      find_session_context || true
+      log "XRDP session context ready: DISPLAY=$SESSION_DISPLAY"
+      return 0
+    fi
+    sleep 1
+  done
+
+  warn "Cannot determine graphical session DISPLAY for $TARGET_USER. xrdp-sesrun output was:"
+  printf '  %s\n' "$out"
   return 1
 }
 
 run_in_session_context() {
-  if ! ensure_session_context; then
-    return 0
-  fi
+  ensure_session_context
 
   if [[ -n "${SESSION_DBUS:-}" ]]; then
     log "Using DISPLAY=$SESSION_DISPLAY DBUS_SESSION_BUS_ADDRESS=$SESSION_DBUS for xfconf/xfce4-panel operations"
