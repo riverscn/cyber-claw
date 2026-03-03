@@ -58,11 +58,14 @@ find_session_context() {
 }
 
 ensure_session_context() {
-  local out disp
+  local out disp uid runtime_dir
 
   if [[ -n "${SESSION_DISPLAY:-}" && -n "${SESSION_DBUS:-}" ]]; then
     return 0
   fi
+
+  uid="$(id -u "$TARGET_USER")"
+  runtime_dir="/run/user/${uid}"
 
   # First, try to reuse an existing graphical session context (physical or XRDP).
   log "Detecting existing graphical session context (DISPLAY + DBUS)..."
@@ -84,8 +87,8 @@ ensure_session_context() {
     return 0
   fi
 
-  log "Waiting for XRDP session context to become ready..."
-  for _ in {1..30}; do
+  log "Waiting for XRDP session context to become ready (up to 90s)..."
+  for _ in {1..90}; do
     sleep 1
     if find_session_context; then
       log "XRDP session context ready after wait: DISPLAY=$SESSION_DISPLAY"
@@ -95,6 +98,17 @@ ensure_session_context() {
 
   warn "Cannot determine graphical session context for $TARGET_USER. xrdp-sesrun output was:"
   printf '  %s\n' "$out"
+  warn "Debug: uid=$uid runtime_dir=$runtime_dir"
+  if [[ -d "$runtime_dir" ]]; then
+    warn "Debug: runtime dir exists; bus socket present? $( [[ -S "$runtime_dir/bus" ]] && echo yes || echo no )"
+  else
+    warn "Debug: runtime dir is missing"
+  fi
+  warn "Debug: latest_xrdp_display=$(latest_xrdp_display || true)"
+  if command -v loginctl >/dev/null 2>&1; then
+    warn "Debug: loginctl user-status $TARGET_USER (tail)"
+    loginctl user-status "$TARGET_USER" 2>/dev/null | tail -n 20 || true
+  fi
   return 1
 }
 
