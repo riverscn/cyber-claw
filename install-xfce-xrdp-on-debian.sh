@@ -60,62 +60,27 @@ find_session_context() {
 }
 
 ensure_session_context() {
-  local out disp uid runtime_dir
-
   if [[ -n "${SESSION_DISPLAY:-}" ]]; then
     return 0
   fi
 
-  uid="$(id -u "$TARGET_USER")"
-  runtime_dir="/run/user/${uid}"
-
-  # First, try to reuse an existing graphical session context (physical or XRDP).
+  # Reuse an existing graphical session only.
+  # Do NOT create XRDP sessions from SSH install context (fragile and can break login flow).
   log "Detecting existing graphical session context (DISPLAY + DBUS)..."
   if find_session_context; then
     log "Found existing session context: DISPLAY=$SESSION_DISPLAY"
     return 0
   fi
 
-  # If no session context exists, start XRDP session then detect its context.
-  log "No session context found. Starting XRDP session and re-detecting context..."
-  out="$(run_as_user "$TARGET_USER" xrdp-sesrun 2>&1 || true)"
-  disp="$(echo "$out" | grep -Eo 'display=:[0-9]+' | head -n1 | cut -d= -f2)"
-  if [[ -n "${disp:-}" ]]; then
-    SESSION_DISPLAY="$disp"
-  fi
-
-  if find_session_context; then
-    log "XRDP session context ready: DISPLAY=$SESSION_DISPLAY"
-    return 0
-  fi
-
-  log "Waiting for XRDP session context to become ready (up to 90s)..."
-  for _ in {1..90}; do
-    sleep 1
-    if find_session_context; then
-      log "XRDP session context ready after wait: DISPLAY=$SESSION_DISPLAY"
-      return 0
-    fi
-  done
-
-  warn "Cannot determine graphical session context for $TARGET_USER. xrdp-sesrun output was:"
-  printf '  %s\n' "$out"
-  warn "Debug: uid=$uid runtime_dir=$runtime_dir"
-  if [[ -d "$runtime_dir" ]]; then
-    warn "Debug: runtime dir exists; bus socket present? $( [[ -S "$runtime_dir/bus" ]] && echo yes || echo no )"
-  else
-    warn "Debug: runtime dir is missing"
-  fi
-  warn "Debug: latest_xrdp_display=$(latest_xrdp_display || true)"
-  if command -v loginctl >/dev/null 2>&1; then
-    warn "Debug: loginctl user-status $TARGET_USER (tail)"
-    loginctl user-status "$TARGET_USER" 2>/dev/null | tail -n 20 || true
-  fi
+  warn "No active graphical session found for $TARGET_USER; skip live XFCE tweaks for now."
+  warn "These tweaks will apply when running inside a desktop session."
   return 1
 }
 
 run_in_session_context() {
-  ensure_session_context
+  if ! ensure_session_context; then
+    return 0
+  fi
 
   if [[ -n "${SESSION_DBUS:-}" ]]; then
     log "Using DISPLAY=$SESSION_DISPLAY DBUS_SESSION_BUS_ADDRESS=$SESSION_DBUS for xfconf/xfce4-panel operations"
